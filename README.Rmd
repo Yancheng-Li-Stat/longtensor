@@ -1,0 +1,140 @@
+---
+title: "Tensor for the people"
+author: "Yancheng Li"
+date: "2024-02-09"
+output: github_document
+---
+
+This package introduces a novel formula syntax for tensor. This package provides an extension for Karl Rohe's [longpca](https://github.com/karlrohe/longpca).
+
+#### Install
+
+You can install this `longtensor` R package through \`devtools':
+
+```{r, eval = FALSE}
+install.packages("devtools")
+devtools::install_github("Yancheng-Li-Stat/longtensor")
+```
+
+### Define your model
+
+```{r, echo=FALSE,include=FALSE}
+library(tidyverse)
+library(longtensor)
+```
+
+Use nycflights13 as an example:
+
+```{r}
+library(nycflights13)
+
+head(flights)
+```
+
+Suppose you want to create a model to study how dates, origin and dest influence carrier:
+
+```{r}
+formula = carrier ~ (month & day) * origin * dest
+```
+
+Make an instance using class make_interaction_model:
+
+```{r}
+im = make_interaction_model(formula, flights, duplicates = 'most')
+im
+```
+
+cleaned_tibble a preprocessed tibble to extract the key columns from the original (huge) tibble, duplicates is either 'most', 'add', or 'average' to handle the exact same rows in terms of features. interaction_tibble specifies a tensor using only index, and the correspondence between index and categories are stored in
+
+### Few features, many categories
+
+Let's consider the case that there are 3 features, and each feature has hundreds of categories/distinct values.
+
+Analyze the flight data from [US Bureau of Transportation Statistics] (<https://www.transtats.bts.gov/DatabaseInfo.asp?QO_VQ=EEE&DB_URL=>,).
+
+Three features are airlines, airports (start), and airports (destination).
+
+Use Karl's longpca or elbow method of Zhu and Ghodsi (2006) to choose the embedding dimensions. (Mu Zhu and Ali Ghodsi. Automatic dimensionality selection from the scree plot via the use of profile likelihood. Computational Statistics & Data Analysis, 51(2):918–930, November 2006.)
+
+To be completed...
+
+### Many features, few categories
+
+Let's consider the case that there are many features. Note that in this case, we cannot have too many categories/distinct values for each feature, as it would explode the computer memory. For example, consider the size of the core tensor when there are 32 features. Suppose we choose the smallest embedding dimension 2. Then the core tensor, which is not sparse, is a 32-order tensor with 2\^32 numbers. Each number takes 8 bytes, then the total RAM required to just store the core tensor is 8 \* 2\^32 bytes = 2\^15 MB = 64 GB.
+
+For example, consider a dataset from OpenML: [diamonds](https://www.openml.org/search?type=data&sort=runs&id=42225&status=active)
+
+```{r, echo=FALSE,include=FALSE}
+library(OpenML)
+library(rsample)
+library(ggplot2)
+library(splines)
+```
+
+```{r}
+dataset <- getOMLDataSet(data.id = 42225)
+
+diamonds <- as_tibble(dataset$data)
+
+head(diamonds)
+```
+
+We need to exclude some columns that are dependent:
+
+Need to come up with a diagnoistic step here. To be completed...
+
+Divide distinct values into categories:
+
+(the following part should be put inside a function)
+
+```{r}
+diamonds_reduced <- diamonds %>%
+  mutate(table = ntile(z, 10)) %>%
+  mutate(x = ntile(z, 10)) %>%
+  mutate(y = ntile(z, 8)) %>%
+  mutate(z = ntile(z, 8))
+```
+
+```{r}
+set.seed(123)  # for reproducibility
+diamonds_split <- initial_split(diamonds_reduced, prop = 0.7)
+
+# Create training and test sets
+train_set <- training(diamonds_split)
+test_set <- testing(diamonds_split)
+```
+
+Create an interaction_model instance:
+
+```{r}
+diamonds_model = make_interaction_model(price~cut+color+clarity+table+x+y+z, train_set, duplicates = 'average')
+diamonds_model
+```
+
+use embed function:
+
+```{r}
+embed(diamonds_model, c(4,6,7,7,7,6,6))
+```
+
+use predict function to predict for the test set. Not that this step might take hours to complete, depending on the scale of your dataset. This function has a built in parallel processing feature to help you speed up the process, if you choose to use.
+
+```{r}
+#To be completed
+```
+
+use accuracy function to calculate R-squared, which gives \textbf{0.766}.
+
+This is not a good result. As a result, we provide the following method to improve the performance:
+
+Instead of directly assign each distinct values into a single categories, we divide each distinct value into a few categories using B-spline. As a result, each row is the weighted mean of dozens of rows (or hundreds, thousands, depending on the scale).
+
+(the following part should be handled by spline.R)
+
+```{r}
+#To be completed
+```
+
+The above code gives a R-squared value \textbf{0.850}, which is a significant improvement over the previous \textbf{0.766}. Its accuracy is no worse, if not better, than random forest and neural network methods, as indicated in (Grinsztajn, Oyallon, and Varoquaux (2002))[<https://arxiv.org/abs/2207.08815>]. A graph to show prediction vs actual values:
+
+![Optional Image Caption](data/spline_example.png)
